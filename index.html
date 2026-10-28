@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1418">
+<title>マキベエ材料計算</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=Zen+Kaku+Gothic+New:wght@500;700&display=swap">
+<style>
+/* Layout: 計器パネル風。暗い基板の上に角を切ったカード、下に固定の合計HUD（ダーク専用デザイン） */
+:root{
+  color-scheme:dark;
+  --bg:#0f1418; --panel:#182027; --panel2:#1b242c; --fg:#eef3f5; --muted:#9aabb5;
+  --line:#2c3a45; --cyan:#5cc8e8; --cyan-dim:rgba(92,200,232,.14); --amber:#ffb84d; --amber-dim:rgba(255,184,77,.13);
+  --font-body:"Zen Kaku Gothic New","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+  --font-num:"Chakra Petch",ui-monospace,Menlo,monospace;
+  --cut:0px; --r:10px;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:15px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 210px}
+.wrap{max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+header{display:flex;flex-direction:column;gap:2px}
+header .code{font-family:var(--font-num);font-size:11px;letter-spacing:.2em;color:var(--muted)}
+h1{font-size:22px;margin:0;font-weight:700}
+h1::after{content:"";display:block;height:3px;width:40px;margin-top:8px;border-radius:2px;background:var(--cyan)}
+.num{font-family:var(--font-num);font-variant-numeric:tabular-nums}
+button{font:inherit;cursor:pointer;color:var(--fg)}
+button:focus-visible,input:focus{outline:2px solid var(--cyan);outline-offset:1px}
+
+.card{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:12px;}
+.card::before{content:none}
+.card .idx{position:absolute;right:16px;top:6px;font-family:var(--font-num);font-size:10px;letter-spacing:.2em;color:var(--muted)}
+.top{display:flex;align-items:center;gap:8px;padding-top:10px}
+.kind{flex:1;min-width:0;display:flex;gap:6px}
+.kind button{flex:1;font-size:16px;font-weight:700;border:1px solid var(--line);background:transparent;padding:10px 4px;border-radius:8px;color:var(--muted);transition:all .15s}
+.kind button[aria-pressed="true"]{color:var(--fg);border-color:var(--fg);background:rgba(238,243,245,.1)}
+.del{border:none;background:none;color:var(--muted);font-size:13px;padding:8px 6px}
+.del:hover{color:#ff6b6b}
+
+.thick{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.thick button{border:1px solid var(--line);background:var(--panel2);border-radius:8px;padding:8px 2px;display:flex;flex-direction:column;align-items:center;gap:1px;line-height:1.15;transition:all .15s}
+.thick .t{font-family:var(--font-num);font-weight:700;font-size:20px}
+.thick .k{font-size:10px;color:var(--muted);height:12px}
+.thick .l{font-family:var(--font-num);font-size:11px;color:var(--muted)}
+.thick button[aria-pressed="true"]{border-color:var(--cyan);background:var(--cyan-dim);color:var(--cyan);}
+.thick button[aria-pressed="true"] .l,.thick button[aria-pressed="true"] .k{color:var(--cyan)}
+
+.inputs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.f{display:flex;flex-direction:column;gap:4px;min-width:0}
+.f span{font-size:13px;color:var(--muted)}
+.f input{width:100%;font-family:var(--font-num);font-size:26px;font-weight:700;text-align:center;padding:8px 4px;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:8px;transition:border-color .15s}
+.f input:focus{outline:none;border-color:var(--cyan)}
+
+.res{display:grid;grid-template-columns:1fr 1fr 1.3fr;border-top:1px dashed var(--line);padding-top:10px;gap:6px;align-items:end}
+.res div{display:flex;flex-direction:column;min-width:0}
+.res small{font-size:12px;color:var(--muted)}
+.res b{font-family:var(--font-num);font-size:20px}
+.res .need{text-align:right}
+.res .need b{font-size:38px;color:var(--amber);line-height:1}
+.res .need b i{font-style:normal;font-size:14px;margin-left:3px}
+.scrap{grid-column:1/-1;display:grid!important;grid-template-columns:1fr 1fr;gap:6px;flex-direction:row}
+.scrap span{display:flex;flex-direction:column;background:var(--panel2);border-radius:8px;padding:8px 10px}
+.scrap b{font-size:20px;color:var(--fg)}
+.scrap b i{font-style:normal;font-size:12px;margin-left:3px;color:var(--muted)}
+.msg{grid-column:1/-1;font-size:13px;color:var(--muted)}
+.msg.warn{color:#ff6b6b}
+
+.add{border:1px dashed var(--cyan);background:transparent;border-radius:var(--r);padding:14px;font-weight:700;color:var(--cyan)}
+
+.bar{position:fixed;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--line);box-shadow:0 -6px 20px rgba(0,0,0,.35);
+  padding:12px max(16px,env(safe-area-inset-right,0px)) calc(12px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.bar-in{max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:8px}
+.bar-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.bar-head h2{font-size:14px;margin:0;color:var(--fg)}
+.bar-head div{display:flex;gap:6px}
+.bar-head button{font-size:13px;border:1px solid var(--line);background:transparent;border-radius:6px;padding:6px 12px}
+.bar-head .copy{border-color:var(--cyan);color:var(--bg);background:var(--cyan);font-weight:700}
+.tot{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.tot div{border:1px solid var(--line);border-radius:8px;padding:6px 2px;text-align:center;display:flex;flex-direction:column}
+.tot small{font-size:11px;color:var(--muted)}
+.tot b{font-family:var(--font-num);font-size:26px;line-height:1.15}
+.tot div.on{border-color:var(--amber);background:var(--amber-dim)}
+.tot div.on b{color:var(--amber)}
+.tot div:not(.on) b{color:var(--muted);opacity:.4}
+.toast{font-size:12px;color:var(--amber);letter-spacing:0}
+textarea{width:100%;font-family:var(--font-body);font-size:12px;padding:6px;border:1px solid var(--line);background:var(--panel);color:var(--fg)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><span class="code">MAKIBEE · CALC</span><h1>マキベエ材料計算</h1></header>
+  <div id="rows" style="display:flex;flex-direction:column;gap:12px"></div>
+  <button class="add" id="addBtn" type="button">＋ 追加</button>
+</div>
+
+<div class="bar">
+  <div class="bar-in">
+    <div class="bar-head">
+      <h2>必要本数の合計 <span class="toast" id="toast"></span></h2>
+      <div><button id="resetBtn" type="button">クリア</button><button class="copy" id="copyBtn" type="button">コピー</button></div>
+    </div>
+    <div class="tot" id="tot"></div>
+    <textarea id="copyText" rows="4" hidden readonly></textarea>
+  </div>
+</div>
+
+<script>
+const MAT = [
+  {id:"20",  t:"20",  k:"",     name:"20mm",       len:10000},
+  {id:"40",  t:"40",  k:"",     name:"40mm",       len:6000},
+  {id:"65",  t:"65",  k:"",     name:"65mm",       len:3300},
+  {id:"h25", t:"25",  k:"高密度", name:"高密度25mm", len:8000},
+  {id:"h40", t:"40",  k:"高密度", name:"高密度40mm", len:5000},
+];
+const KINDS = ["大梁","小梁","柱"];
+const KEY = "makibee-keisan-v3";
+const sample = [
+  {name:"大梁", mat:"40", size:1450, perBeam:8, beams:12},
+  {name:"小梁", mat:"20", size:1100, perBeam:6, beams:20},
+  {name:"柱",   mat:"h25", size:1600, perBeam:4, beams:8},
+];
+let rows; try{ rows = JSON.parse(localStorage.getItem(KEY)); }catch(e){}
+if(!Array.isArray(rows)) rows = sample;
+const save = ()=>{ try{ localStorage.setItem(KEY, JSON.stringify(rows)); }catch(e){} };
+const n = v => { const x = parseFloat(v); return isFinite(x) && x>0 ? x : 0; };
+const fmt = x => x.toLocaleString();
+const lenTxt = l => (l/1000)+"m";
+
+function calc(r){
+  const m = MAT.find(x=>x.id===r.mat) || MAT[0];
+  const size = n(r.size);
+  const per = size ? Math.floor(m.len/size) : 0;
+  const pieces = Math.ceil(n(r.perBeam)) * Math.ceil(n(r.beams));
+  const rolls = per ? Math.ceil(pieces/per) : 0;
+  const scrap = per ? m.len - per*size : 0;              // 1本切って残る端材
+  const rem = per ? pieces % per : 0;
+  const lastLeft = rem ? m.len - rem*size : scrap;        // 最後の1本の残り
+  return {m,size,per,pieces,rolls,scrap,rem,lastLeft};
+}
+
+const rowsEl = document.getElementById("rows");
+function render(){
+  rowsEl.innerHTML = "";
+  rows.forEach((r,i)=>{
+    const el = document.createElement("div");
+    el.className = "card";
+    const no = String(i+1).padStart(2,"0");
+    el.innerHTML = `
+      <span class="idx">No.${no}</span>
+      <div class="top">
+        <div class="kind" role="group" aria-label="部位">
+          ${KINDS.map(k=>`<button type="button" data-kind="${k}" aria-pressed="${k===r.name}">${k}</button>`).join("")}
+        </div>
+        <button class="del" type="button">削除</button>
+      </div>
+      <div class="thick" role="group" aria-label="厚み">
+        ${MAT.map(m=>`<button type="button" data-m="${m.id}" aria-pressed="${m.id===r.mat}">
+          <span class="k">${m.k}</span><span class="t">${m.t}</span><span class="l">${lenTxt(m.len)}</span></button>`).join("")}
+      </div>
+      <div class="inputs">
+        <label class="f"><span>寸法 mm</span><input id="sz${i}" data-k="size" type="number" inputmode="decimal" value="${r.size??""}"></label>
+        <label class="f"><span>1本の枚数</span><input id="pb${i}" data-k="perBeam" type="number" inputmode="numeric" value="${r.perBeam??""}"></label>
+        <label class="f"><span>本数</span><input id="bm${i}" data-k="beams" type="number" inputmode="numeric" value="${r.beams??""}"></label>
+      </div>
+      <div class="res"></div>`;
+    el.querySelectorAll(".kind button").forEach(b=>b.addEventListener("click",()=>{
+      r.name=b.dataset.kind;
+      el.querySelectorAll(".kind button").forEach(x=>x.setAttribute("aria-pressed", x===b));
+      save();
+    }));
+    el.querySelector(".del").addEventListener("click",()=>{ rows.splice(i,1); render(); });
+    el.querySelectorAll(".thick button").forEach(b=>b.addEventListener("click",()=>{
+      r.mat=b.dataset.m;
+      el.querySelectorAll(".thick button").forEach(x=>x.setAttribute("aria-pressed", x===b));
+      update();
+    }));
+    el.querySelectorAll("input[data-k]").forEach(inp=>inp.addEventListener("input",()=>{ r[inp.dataset.k]=inp.value; update(); }));
+    rowsEl.appendChild(el);
+  });
+  update();
+}
+
+function update(){
+  const totals = {};
+  [...rowsEl.children].forEach((el,i)=>{
+    const c = calc(rows[i]), res = el.querySelector(".res");
+    if(c.size && c.size > c.m.len){
+      res.innerHTML = `<div class="msg warn">寸法が材料1本（${lenTxt(c.m.len)}）より長いです</div>`;
+    }else if(!c.per){
+      res.innerHTML = `<div class="msg">寸法を入れると計算します</div>`;
+    }else{
+      res.innerHTML = `
+        <div><small>1本から</small><b>${c.per}<small> 枚</small></b></div>
+        <div><small>使う枚数</small><b>${fmt(c.pieces)}<small> 枚</small></b></div>
+        <div class="need"><small>必要</small><b>${fmt(c.rolls)}<i>本</i></b></div>
+        <div class="scrap"><span><small>1本切って残る端材</small><b>${fmt(c.scrap)}<i>mm</i></b></span>
+          <span><small>最後の1本の残り${c.rem?`（${c.rem}枚取り）`:""}</small><b>${fmt(c.lastLeft)}<i>mm</i></b></span></div>`;
+    }
+    if(c.rolls) totals[c.m.id]=(totals[c.m.id]||0)+c.rolls;
+  });
+  document.getElementById("tot").innerHTML = MAT.map(m=>{
+    const v = totals[m.id]||0;
+    return `<div class="${v?"on":""}"><small>${m.k?"高密":""}${m.t}mm</small><b>${fmt(v)}</b></div>`;
+  }).join("");
+  save();
+}
+
+function resultText(){
+  const lines = ["【マキベエ材料】"], totals = {};
+  rows.forEach(r=>{
+    const c = calc(r); if(!c.rolls) return;
+    lines.push(`${r.name||"梁"}：${c.m.name} ${c.size}mm×${r.perBeam}枚×${r.beams}本 → ${c.pieces}枚（1本${c.per}枚取り・端材${c.scrap}mm）${c.rolls}本`);
+    totals[c.m.id]=(totals[c.m.id]||0)+c.rolls;
+  });
+  lines.push("―― 合計 ――");
+  MAT.forEach(m=>{ if(totals[m.id]) lines.push(`${m.name}：${totals[m.id]}本`); });
+  return lines.join("\n");
+}
+
+document.getElementById("addBtn").addEventListener("click",()=>{
+  const last = rows[rows.length-1];
+  rows.push({name:last?last.name:"大梁", mat:last?last.mat:"40", size:"", perBeam:"", beams:""});
+  render();
+  document.getElementById("sz"+(rows.length-1)).focus();
+});
+const toast = document.getElementById("toast"), ta = document.getElementById("copyText");
+document.getElementById("copyBtn").addEventListener("click",()=>{
+  const t = resultText();
+  navigator.clipboard.writeText(t).then(()=>{ ta.hidden=true; toast.textContent="コピーしました"; })
+  .catch(()=>{ ta.value=t; ta.hidden=false; ta.select(); toast.textContent="長押しでコピー"; });
+  setTimeout(()=>toast.textContent="",3000);
+});
+let armed=false; const resetBtn=document.getElementById("resetBtn");
+resetBtn.addEventListener("click",()=>{
+  if(!armed){ armed=true; resetBtn.textContent="もう一度押す"; setTimeout(()=>{armed=false;resetBtn.textContent="クリア";},3000); return; }
+  armed=false; resetBtn.textContent="クリア";
+  rows=[{name:"大梁", mat:"40", size:"", perBeam:"", beams:""}]; ta.hidden=true; render();
+});
+render();
+</script>
+</body>
+</html>
